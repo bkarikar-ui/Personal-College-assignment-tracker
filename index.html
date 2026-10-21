@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A personal college assignment tracker and study planner.">
+  <title>StudyFlow | Assignment Tracker</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#top" aria-label="StudyFlow home">
+        <span class="brand-mark">S</span><span>StudyFlow</span>
+      </a>
+      <p class="nav-heading">WORKSPACE</p>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a class="nav-link active" href="#dashboard"><span aria-hidden="true">▦</span> Dashboard</a>
+        <a class="nav-link" href="#assignments"><span aria-hidden="true">☷</span> Assignments</a>
+        <a class="nav-link" href="#study-plan"><span aria-hidden="true">✦</span> Study plan</a>
+      </nav>
+      <div class="sidebar-note">
+        <div class="note-icon">✦</div>
+        <strong>Small steps add up.</strong>
+        <p>Keep your tasks organized and focus on what matters next.</p>
+      </div>
+      <div class="sidebar-footer"><span class="status-dot"></span> Personal workspace</div>
+    </aside>
+
+    <main class="main-content" id="top">
+      <header class="topbar">
+        <div><p class="eyebrow">YOUR STUDY SPACE</p><h1>Assignment dashboard</h1></div>
+        <div class="date-chip" id="today-label">Your study overview</div>
+      </header>
+
+      <section class="welcome-row" id="dashboard">
+        <div>
+          <p class="eyebrow light-eyebrow">LET'S MAKE PROGRESS</p>
+          <h2>One task at a time.</h2>
+          <p>Keep track of deadlines and make a plan for your next study session.</p>
+        </div>
+        <div class="welcome-art" aria-hidden="true"><span class="art-star">✦</span><span class="art-circle"></span><span class="art-check">✓</span></div>
+      </section>
+
+      <section class="stats-grid" aria-label="Assignment summary">
+        <article class="stat-card"><div class="stat-top"><span>Total assignments</span><span class="stat-icon purple">▤</span></div><p class="stat-number" id="total-count">0</p><p class="stat-foot">Across all your courses</p></article>
+        <article class="stat-card"><div class="stat-top"><span>Pending</span><span class="stat-icon orange">◷</span></div><p class="stat-number" id="pending-count">0</p><p class="stat-foot">Still to be completed</p></article>
+        <article class="stat-card"><div class="stat-top"><span>Completed</span><span class="stat-icon green">✓</span></div><p class="stat-number" id="completed-count">0</p><p class="stat-foot">Look at you go!</p></article>
+        <article class="stat-card progress-card"><div class="stat-top"><span>Overall progress</span><span class="stat-percent" id="progress-percent">0%</span></div><div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div><p class="stat-foot" id="progress-caption">Complete a task to get started.</p></article>
+      </section>
+
+      <div class="content-grid">
+        <section class="panel assignments-panel" id="assignments">
+          <div class="panel-heading"><div><p class="eyebrow">STAY ON TRACK</p><h2>Your assignments</h2></div><button class="button button-primary" id="show-form-button" type="button">＋ Add assignment</button></div>
+
+          <form class="assignment-form hidden" id="assignment-form" novalidate>
+            <div class="form-heading"><h3 id="form-title">Add an assignment</h3><button class="icon-button" id="close-form-button" type="button" aria-label="Close form">×</button></div>
+            <div class="form-grid">
+              <label class="field full-field">Assignment title<input id="assignment-title" name="title" type="text" maxlength="100" placeholder="e.g. Calculus problem set" required></label>
+              <label class="field">Course<input id="assignment-course" name="course" type="text" maxlength="60" placeholder="e.g. MA 121" required></label>
+              <label class="field">Due date<input id="assignment-due" name="dueDate" type="date" required></label>
+              <label class="field">Priority<select id="assignment-priority" name="priority"><option value="Medium">Medium</option><option value="High">High</option><option value="Low">Low</option></select></label>
+            </div>
+            <p class="form-error" id="form-error" role="alert"></p>
+            <div class="form-actions"><button class="button button-quiet" id="cancel-form-button" type="button">Cancel</button><button class="button button-primary" type="submit" id="save-assignment-button">Save assignment</button></div>
+          </form>
+
+          <div class="list-controls">
+            <div class="filter-tabs" role="group" aria-label="Filter assignments">
+              <button class="filter-button active" type="button" data-filter="All" aria-pressed="true">All <span id="all-filter-count">0</span></button>
+              <button class="filter-button" type="button" data-filter="Pending" aria-pressed="false">Pending</button>
+              <button class="filter-button" type="button" data-filter="Completed" aria-pressed="false">Completed</button>
+            </div>
+            <label class="sort-control"><span class="sr-only">Sort assignments</span><select id="sort-select"><option value="due">Due date</option><option value="priority">Priority</option><option value="course">Course</option></select></label>
+          </div>
+          <div class="assignment-list" id="assignment-list" aria-live="polite"></div>
+          <div class="empty-state hidden" id="empty-state"><div class="empty-icon">☷</div><h3>No assignments here yet</h3><p>Add an assignment to start organizing your coursework.</p><button class="button button-secondary" id="empty-add-button" type="button">＋ Add your first assignment</button></div>
+        </section>
+
+        <aside class="panel study-panel" id="study-plan">
+          <div class="panel-heading"><div><p class="eyebrow">YOUR NEXT STEPS</p><h2>Study plan</h2></div><span class="sparkle-icon">✦</span></div>
+          <p class="study-intro">Create a simple plan based on your current assignments, deadlines, and priorities.</p>
+          <div class="plan-preview" id="plan-preview"><div class="plan-preview-icon">✧</div><h3>Your focus, organized</h3><p>Your plan will appear here when you generate it.</p></div>
+          <button class="button button-primary generate-button" id="generate-plan-button" type="button">✦ Generate study plan</button>
+          <p class="prototype-note"><span aria-hidden="true">ⓘ</span> Sprint 1 prototype: the plan is generated locally using your assignment details. No external AI service is connected yet.</p>
+        </aside>
+      </div>
+      <footer class="page-footer">Made for your own progress <span>•</span> StudyFlow prototype</footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
