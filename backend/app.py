@@ -2,11 +2,58 @@
 from flask import Flask, jsonify, request
 import json
 from pathlib import Path
+import sqlite3
 
 app = Flask(__name__)
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    return response
 
 # Location of our temporary JSON storage file
 DATA_FILE = Path(__file__).parent / "assignments.json"
+
+DB_FILE = Path(__file__).parent / "assignments.db"
+
+
+def init_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                course TEXT NOT NULL,
+                due_date TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                description TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+def migrate_json_to_db():
+    if not DATA_FILE.exists():
+        return
+
+    with open(DATA_FILE, "r", encoding="utf-8") as file:
+        assignments = json.load(file)
+
+    with sqlite3.connect(DB_FILE) as conn:
+        for assignment in assignments:
+            conn.execute("""
+                INSERT OR IGNORE INTO assignments
+                (id, title, course, due_date, priority, completed, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                assignment["id"],
+                assignment["title"],
+                assignment["course"],
+                assignment["due_date"],
+                assignment["priority"],
+                int(assignment["completed"]),
+                assignment.get("description", "")
+            ))
 
 
 def load_assignments():
@@ -34,166 +81,144 @@ def home():
 # GET: Retrieve all assignments
 @app.route("/api/assignments", methods=["GET"])
 def get_assignments():
-    assignments = load_assignments()
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM assignments"
+        ).fetchall()
+
+    assignments = [dict(row) for row in rows]
+
+    for assignment in assignments:
+        assignment["completed"] = bool(assignment["completed"])
+
     return jsonify(assignments), 200
 
 
 # POST: Create a new assignment
 @app.route("/api/assignments", methods=["POST"])
-def create_assignment():
-    data = request.get_json(silent=True)
+def add_assignment():
+    data = request.get_json()
 
-    if not isinstance(data, dict):
-        return jsonify({"error": "A valid JSON object is required."}), 400
+    if not data:
+        return jsonify({"error": "Request body is required"}), 400
 
-    title = data.get("title")
-    course = data.get("course")
-    due_date = data.get("due_date")
-    priority = data.get("priority")
+    required_fields = ["title", "course", "due_date", "priority"]
+
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({"error": f"{field} is required"}), 400
+
+    if data["priority"] not in ["Low", "Medium", "High"]:
+        return jsonify({"error": "Invalid priority"}), 400
+
     completed = data.get("completed", False)
+
+    if not isinstance(completed, bool):
+        return jsonify({"error": "Completed must be true or false"}), 400
+
     description = data.get("description", "")
 
-    # Validate required text fields
-    if not all(
-        isinstance(value, str) and value.strip()
-        for value in [title, course, due_date, priority]
-    ):
-        return jsonify({
-            "error": "Title, course, due date, and priority are required."
-        }), 400
-
-    # Validate priority
-    if priority.strip().lower() not in ["low", "medium", "high"]:
-        return jsonify({
-            "error": "Priority must be Low, Medium, or High."
-        }), 400
-
-    # Validate completed
-    if not isinstance(completed, bool):
-        return jsonify({
-            "error": "Completed must be true or false."
-        }), 400
-
-    # Validate description
     if not isinstance(description, str):
-        return jsonify({
-            "error": "Description must be text."
-        }), 400
+        return jsonify({"error": "Description must be text"}), 400
 
-    assignments = load_assignments()
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.execute("""
+            INSERT INTO assignments
+            (title, course, due_date, priority, completed, description)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            data["title"],
+            data["course"],
+            data["due_date"],
+            data["priority"],
+            int(completed),
+            description
+        ))
 
-    # Generate a new ID
-    new_id = max(
-        (assignment.get("id", 0) for assignment in assignments),
-        default=0
-    ) + 1
+        assignment_id = cursor.lastrowid
 
-    new_assignment = {
-        "id": new_id,
-        "title": title.strip(),
-        "course": course.strip(),
-        "due_date": due_date.strip(),
-        "priority": priority.strip().capitalize(),
+    return jsonify({
+        "id": assignment_id,
+        "title": data["title"],
+        "course": data["course"],
+        "due_date": data["due_date"],
+        "priority": data["priority"],
         "completed": completed,
-        "description": description.strip()
-    }
-
-    assignments.append(new_assignment)
-    save_assignments(assignments)
-
-    return jsonify(new_assignment), 201
+        "description": description
+    }), 201
 
 # PUT: Update an existing assignment
 @app.route("/api/assignments/<int:assignment_id>", methods=["PUT"])
 def update_assignment(assignment_id):
-    data = request.get_json(silent=True)
+    data = request.get_json()
 
-    if not isinstance(data, dict) or not data:
-        return jsonify({
-            "error": "A valid JSON object is required."
-        }), 400
+    if not data:
+        return jsonify({"error": "Request body is required"}), 400
 
-    assignments = load_assignments()
+    required_fields = ["title", "course", "due_date", "priority"]
 
-    assignment = next(
-        (item for item in assignments
-         if item.get("id") == assignment_id),
-        None
-    )
+    for field in required_fields:
+        if not data.get(field):
+            return jsonify({"error": f"{field} is required"}), 400
 
-    if assignment is None:
-        return jsonify({
-            "error": "Assignment not found."
-        }), 404
+    if data["priority"] not in ["Low", "Medium", "High"]:
+        return jsonify({"error": "Invalid priority"}), 400
 
-    allowed_fields = [
-        "title", "course", "due_date",
-        "priority", "completed", "description"
-    ]
+    completed = data.get("completed", False)
 
-    if not any(field in data for field in allowed_fields):
-        return jsonify({
-            "error": "No valid fields provided."
-        }), 400
+    if not isinstance(completed, bool):
+        return jsonify({"error": "Completed must be true or false"}), 400
 
-    for field in allowed_fields:
-        if field not in data:
-            continue
+    description = data.get("description", "")
 
-        value = data[field]
+    if not isinstance(description, str):
+        return jsonify({"error": "Description must be text"}), 400
 
-        if field == "completed":
-            if not isinstance(value, bool):
-                return jsonify({
-                    "error": "Completed must be true or false."
-                }), 400
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.execute("""
+            UPDATE assignments
+            SET title = ?, course = ?, due_date = ?,
+                priority = ?, completed = ?, description = ?
+            WHERE id = ?
+        """, (
+            data["title"],
+            data["course"],
+            data["due_date"],
+            data["priority"],
+            int(completed),
+            description,
+            assignment_id
+        ))
 
-        elif field == "priority":
-            if not isinstance(value, str) or value.strip().lower() not in [
-                "low", "medium", "high"
-            ]:
-                return jsonify({
-                    "error": "Priority must be Low, Medium, or High."
-                }), 400
+        if cursor.rowcount == 0:
+            return jsonify({"error": "Assignment not found"}), 404
 
-            value = value.strip().capitalize()
-
-        else:
-            if not isinstance(value, str):
-                return jsonify({
-                    "error": f"{field} must be text."
-                }), 400
-
-            value = value.strip()
-
-            if field != "description" and not value:
-                return jsonify({
-                    "error": f"{field} cannot be empty."
-                }), 400
-
-        assignment[field] = value
-
-    save_assignments(assignments)
-
-    return jsonify(assignment), 200
+    return jsonify({
+        "id": assignment_id,
+        "title": data["title"],
+        "course": data["course"],
+        "due_date": data["due_date"],
+        "priority": data["priority"],
+        "completed": completed,
+        "description": description
+    }), 200
 
 # DELETE: Remove an assignment
 @app.route("/api/assignments/<int:assignment_id>", methods=["DELETE"])
 def delete_assignment(assignment_id):
-    assignments = load_assignments()
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.execute(
+            "DELETE FROM assignments WHERE id = ?",
+            (assignment_id,)
+        )
 
-    assignment = next(
-        (item for item in assignments if item.get("id") == assignment_id),
-        None
-    )
-
-    if assignment is None:
-        return jsonify({"error": "Assignment not found."}), 404
-
-    assignments.remove(assignment)
-    save_assignments(assignments)
+        if cursor.rowcount == 0:
+            return jsonify({"error": "Assignment not found"}), 404
 
     return "", 204
 
 if __name__ == "__main__":
-      app.run(host="127.0.0.1", port=5001, debug=True)
+    init_db()
+    migrate_json_to_db()
+    app.run(host="127.0.0.1", port=5001, debug=True)

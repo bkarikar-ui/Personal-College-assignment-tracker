@@ -1,13 +1,9 @@
 'use strict';
 
 // Sprint 1 prototype data. Assignments live in browser memory and reset on refresh.
-const assignments = [
-  { id: 1, title: 'Differential Calculus problem set', course: 'MA 121', dueDate: futureDate(2), priority: 'High', completed: false },
-  { id: 2, title: 'Mobile project reflection', course: 'ENGR 211', dueDate: futureDate(4), priority: 'Medium', completed: false },
-  { id: 3, title: 'Chemistry lab conclusion', course: 'CH 115', dueDate: futureDate(1), priority: 'High', completed: false },
-  { id: 4, title: 'Read software design notes', course: 'CS 101', dueDate: futureDate(-1), priority: 'Low', completed: true }
-];
-let nextId = 5;
+const API_URL = 'http://127.0.0.1:5001/api/assignments';
+
+let assignments = [];
 let activeFilter = 'All';
 let editingId = null;
 let toastTimeout;
@@ -35,6 +31,27 @@ const elements = {
   generatePlan: document.querySelector('#generate-plan-button'),
   toast: document.querySelector('#toast')
 };
+async function loadAssignments() {
+  try {
+    const response = await fetch(API_URL);
+
+    if (!response.ok) {
+      throw new Error('Could not load assignments.');
+    }
+
+    const data = await response.json();
+
+    assignments = data.map(item => ({
+      ...item,
+      dueDate: item.due_date
+    }));
+
+    renderAssignments();
+  } catch (error) {
+    console.error(error);
+    showToast('Could not connect to the server. Make sure Flask is running.');
+  }
+}
 
 function futureDate(offsetDays) {
   const date = new Date();
@@ -167,8 +184,10 @@ function setFilter(filter) {
   renderAssignments();
 }
 
-function handleFormSubmit(event) {
+
+async function handleFormSubmit(event) {
   event.preventDefault();
+
   const title = elements.title.value.trim();
   const course = elements.course.value.trim();
   const dueDate = elements.dueDate.value;
@@ -178,46 +197,147 @@ function handleFormSubmit(event) {
     elements.error.textContent = 'Please enter a title, course, and due date.';
     return;
   }
+
   if (dueDate < futureDate(0)) {
     elements.error.textContent = 'Choose today or a future date for the due date.';
     return;
   }
 
-  if (editingId !== null) {
-    const existing = assignments.find(assignment => assignment.id === editingId);
-    if (!existing) return;
-    Object.assign(existing, { title, course, dueDate, priority });
-    showToast('Assignment updated.');
-  } else {
-    assignments.push({ id: nextId++, title, course, dueDate, priority, completed: false });
-    showToast('Assignment added.');
+  try {
+    let response;
+
+    if (editingId !== null) {
+      const existing = assignments.find(
+        assignment => assignment.id === editingId
+      );
+
+      if (!existing) return;
+
+      response = await fetch(`${API_URL}/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          course,
+          due_date: dueDate,
+          priority,
+          completed: existing.completed,
+          description: existing.description || ''
+        })
+      });
+    } else {
+      response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          course,
+          due_date: dueDate,
+          priority,
+          completed: false,
+          description: ''
+        })
+      });
+    }
+
+    if (!response.ok) {
+      throw new Error('Could not save assignment.');
+    }
+
+    const savedAssignment = await response.json();
+
+    const updatedAssignment = {
+      ...savedAssignment,
+      dueDate: savedAssignment.due_date
+    };
+
+    if (editingId !== null) {
+      const index = assignments.findIndex(
+        assignment => assignment.id === editingId
+      );
+      assignments[index] = updatedAssignment;
+      showToast('Assignment updated.');
+    } else {
+      assignments.push(updatedAssignment);
+      showToast('Assignment added.');
+    }
+
+    hideForm();
+    setFilter('All');
+
+  } catch (error) {
+    console.error(error);
+    elements.error.textContent = 'Could not save assignment. Check your server.';
   }
-  hideForm();
-  setFilter('All');
 }
 
-function handleAssignmentAction(event) {
+
+
+async function handleAssignmentAction(event) {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
+
   const card = button.closest('[data-assignment-id]');
   const id = Number(card?.dataset.assignmentId);
   const assignment = assignments.find(item => item.id === id);
+
   if (!assignment) return;
 
-  if (button.dataset.action === 'toggle') {
-    assignment.completed = !assignment.completed;
-    renderAssignments();
-    showToast(assignment.completed ? 'Nice work — marked complete!' : 'Assignment marked pending.');
-  } else if (button.dataset.action === 'delete') {
-    const index = assignments.findIndex(item => item.id === id);
-    assignments.splice(index, 1);
-    renderAssignments();
-    showToast('Assignment deleted.');
-  } else if (button.dataset.action === 'edit') {
-    showForm(assignment);
-    document.querySelector('#assignments').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  try {
+    if (button.dataset.action === 'toggle') {
+      const newCompleted = !assignment.completed;
+
+      const response = await fetch(`${API_URL}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: assignment.title,
+          course: assignment.course,
+          due_date: assignment.dueDate,
+          priority: assignment.priority,
+          completed: newCompleted,
+          description: assignment.description || ''
+        })
+      });
+
+      if (!response.ok) throw new Error('Could not update assignment.');
+
+      assignment.completed = newCompleted;
+      renderAssignments();
+
+      showToast(
+        assignment.completed
+          ? 'Nice work — marked complete!'
+          : 'Assignment marked pending.'
+      );
+
+    } else if (button.dataset.action === 'delete') {
+      const response = await fetch(`${API_URL}/${id}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) throw new Error('Could not delete assignment.');
+
+      const index = assignments.findIndex(item => item.id === id);
+      assignments.splice(index, 1);
+
+      renderAssignments();
+      showToast('Assignment deleted.');
+
+    } else if (button.dataset.action === 'edit') {
+      showForm(assignment);
+      document.querySelector('#assignments').scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }
+
+  } catch (error) {
+    console.error(error);
+    showToast('Something went wrong. Please check your server.');
   }
 }
+
 
 function generateStudyPlan() {
   const pending = assignments.filter(assignment => !assignment.completed).sort((a, b) => {
@@ -250,4 +370,4 @@ elements.generatePlan.addEventListener('click', generateStudyPlan);
 document.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => setFilter(button.dataset.filter)));
 
 document.querySelector('#today-label').textContent = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-renderAssignments();
+loadAssignments();
